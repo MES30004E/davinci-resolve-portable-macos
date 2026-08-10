@@ -1,0 +1,15 @@
+.DS_Store
+._*
+*.pkg
+*.dmg
+*.dylib
+*.app/
+Resolve.icns
+
+build/
+dist/
+.test-work/
+.davinci-resolve-portable/
+
+known-good/
+CONTEXT.md
