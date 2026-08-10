@@ -1,25 +1,15 @@
 name: Create Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Version number without the leading v (example: 0.1.0)'
-        required: true
-        default: '0.1.0'
-        type: string
-
-      prerelease:
-        description: 'Mark this as a prerelease'
-        required: true
-        default: true
-        type: boolean
+  push:
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: write
 
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -38,6 +28,16 @@ jobs:
 
           if [[ "$(uname -m)" != "arm64" ]]; then
             echo "Expected an arm64 macOS runner."
+            exit 1
+          fi
+
+      - name: Validate tag
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid release tag: $TAG"
+            echo "Expected something like v0.2.0 or v0.3.0-beta.1"
             exit 1
           fi
 
@@ -67,49 +67,23 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Validate version
-        env:
-          VERSION: ${{ inputs.version }}
-        run: |
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "Invalid version: $VERSION"
-            echo "Expected something like 0.1.0 or 0.2.0-beta.1"
-            exit 1
-          fi
-
-          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
-
-      - name: Refuse an existing tag or release
+      - name: Create GitHub prerelease
+        if: contains(github.ref_name, '-')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Tag $TAG already exists."
-            exit 1
-          fi
-
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG already exists."
-            exit 1
-          fi
-
-      - name: Create prerelease
-        if: ${{ inputs.prerelease }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$TAG" \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
+          gh release create "${GITHUB_REF_NAME}" \
+            --target "${GITHUB_SHA}" \
+            --title "${GITHUB_REF_NAME}" \
             --generate-notes \
             --prerelease
 
-      - name: Create stable release
-        if: ${{ !inputs.prerelease }}
+      - name: Create GitHub release
+        if: ${{ !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$TAG" \
-            --target "$GITHUB_SHA" \
-            --title "$TAG" \
+          gh release create "${GITHUB_REF_NAME}" \
+            --target "${GITHUB_SHA}" \
+            --title "${GITHUB_REF_NAME}" \
             --generate-notes
