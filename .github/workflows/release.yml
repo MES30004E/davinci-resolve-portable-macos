@@ -1,0 +1,115 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number without the leading v (example: 0.1.0)'
+        required: true
+        default: '0.1.0'
+        type: string
+
+      prerelease:
+        description: 'Mark this as a prerelease'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test on Apple Silicon macOS
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Show runner information
+        run: |
+          sw_vers
+          uname -m
+
+          if [[ "$(uname -m)" != "arm64" ]]; then
+            echo "Expected an arm64 macOS runner."
+            exit 1
+          fi
+
+      - name: Make scripts executable
+        run: |
+          chmod +x \
+            "Build Portable Resolve.command" \
+            "Update Portable Resolve.command" \
+            "Uninstall.command" \
+            scripts/*.sh \
+            scripts/*.command \
+            tests/run.sh
+
+      - name: Run safe test suite
+        env:
+          DAVINCI_PORTABLE_NO_ANIMATION: "1"
+        run: ./tests/run.sh
+
+  release:
+    name: Create GitHub Release
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $VERSION"
+            echo "Expected something like 0.1.0 or 0.2.0-beta.1"
+            exit 1
+          fi
+
+          echo "TAG=v$VERSION" >> "$GITHUB_ENV"
+
+      - name: Refuse an existing tag or release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists."
+            exit 1
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
+            exit 1
+          fi
+
+      - name: Create prerelease
+        if: ${{ inputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes \
+            --prerelease
+
+      - name: Create stable release
+        if: ${{ !inputs.prerelease }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$TAG" \
+            --target "$GITHUB_SHA" \
+            --title "$TAG" \
+            --generate-notes
