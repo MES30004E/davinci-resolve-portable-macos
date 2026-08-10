@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test on Apple Silicon macOS
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Show runner information
+        run: |
+          sw_vers
+          uname -m
+
+          if [[ "$(uname -m)" != "arm64" ]]; then
+            echo "Expected an arm64 macOS runner."
+            exit 1
+          fi
+
+      - name: Make scripts executable
+        run: |
+          chmod +x \
+            "Build Portable Resolve.command" \
+            "Update Portable Resolve.command" \
+            "Uninstall.command" \
+            scripts/*.sh \
+            scripts/*.command \
+            tests/run.sh
+
+      - name: Run safe test suite
+        env:
+          DAVINCI_PORTABLE_NO_ANIMATION: "1"
+        run: ./tests/run.sh
