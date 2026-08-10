@@ -21,7 +21,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Show runner information
+      - name: Verify Apple Silicon runner
         run: |
           sw_vers
           uname -m
@@ -31,13 +31,12 @@ jobs:
             exit 1
           fi
 
-      - name: Validate tag
+      - name: Validate release tag
         run: |
           TAG="${GITHUB_REF_NAME}"
 
           if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "Invalid release tag: $TAG"
-            echo "Expected something like v0.2.0 or v0.3.0-beta.1"
             exit 1
           fi
 
@@ -57,33 +56,144 @@ jobs:
         run: ./tests/run.sh
 
   release:
-    name: Create GitHub Release
+    name: Build friendly release
     needs: test
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout exact release tag
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Create GitHub prerelease
+      - name: Prepare release package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${GITHUB_REF_NAME}"
+          PACKAGE="davinci-resolve-portable-macos-${TAG}"
+
+          mkdir -p "dist/$PACKAGE"
+
+          cp \
+            "Build Portable Resolve.command" \
+            "Update Portable Resolve.command" \
+            "Uninstall.command" \
+            README.md \
+            LICENSE \
+            CHANGELOG.md \
+            SECURITY.md \
+            CONTRIBUTING.md \
+            "dist/$PACKAGE/"
+
+          cp -R \
+            docs \
+            scripts \
+            src \
+            tests \
+            "dist/$PACKAGE/"
+
+          chmod +x \
+            "dist/$PACKAGE/Build Portable Resolve.command" \
+            "dist/$PACKAGE/Update Portable Resolve.command" \
+            "dist/$PACKAGE/Uninstall.command" \
+            dist/"$PACKAGE"/scripts/*.sh \
+            dist/"$PACKAGE"/scripts/*.command \
+            dist/"$PACKAGE"/tests/run.sh
+
+          (
+            cd dist
+            zip -r "${PACKAGE}.zip" "$PACKAGE"
+            sha256sum "${PACKAGE}.zip" > "${PACKAGE}.zip.sha256"
+          )
+
+      - name: Create friendly release introduction
+        shell: bash
+        run: |
+          cat > release-intro.md <<EOF
+          # DaVinci Resolve Portable for macOS ${GITHUB_REF_NAME}
+
+          > [!WARNING]
+          > **This project was vibecoded with AI assistance and is experimental community software.**
+          >
+          > **Use the code, scripts, and commands entirely at your own risk.**
+          > Back up important Resolve projects, databases, preferences, media, and other data before using it.
+
+          ## What is this?
+
+          This project builds a portable external-drive installation of **DaVinci Resolve for macOS** from **your own official Blackmagic Design installer**.
+
+          **DaVinci Resolve itself is not included or redistributed.**
+
+          You supply the official macOS \`.pkg\` downloaded from Blackmagic Design.
+
+          ## Tested configuration
+
+          - DaVinci Resolve **21.0.4**
+          - macOS **26.6.1**
+          - **Apple Silicon / arm64**
+          - **exFAT** external SSD
+          - **No administrator / sudo access**
+
+          Other Resolve or macOS versions may require changes.
+
+          ## Quick start
+
+          1. Download **\`davinci-resolve-portable-macos-${GITHUB_REF_NAME}.zip\`** from the Assets section below.
+          2. Extract the ZIP.
+          3. Double-click **\`Build Portable Resolve.command\`**.
+          4. Select or paste the path to your official DaVinci Resolve macOS \`.pkg\`.
+          5. Select the external drive or folder where you want the portable installation.
+          6. Let the builder complete.
+          7. macOS may ask for removable-volume access on first launch — choose **Allow**.
+          8. Launch the generated **DaVinci Resolve.app**.
+
+          ## Important
+
+          The builder creates two small symlinks in your user Library:
+
+          \`\`\`text
+          ~/Library/Application Support/Blackmagic Design
+          ~/Library/Preferences/Blackmagic Design
+          \`\`\`
+
+          The actual Resolve application and support data are stored on the selected portable drive.
+
+          Changing the external drive's name or mount path may break the portable installation.
+
+          ## Downloads
+
+          **Recommended:** download the custom project ZIP below rather than GitHub's generic "Source code" archives.
+
+          A SHA-256 checksum file is included for integrity checking.
+
+          ## Changes in this release
+          EOF
+
+      - name: Create prerelease
         if: contains(github.ref_name, '-')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            --target "${GITHUB_SHA}" \
-            --title "${GITHUB_REF_NAME}" \
+            "dist/davinci-resolve-portable-macos-${GITHUB_REF_NAME}.zip#Portable Resolve Builder" \
+            "dist/davinci-resolve-portable-macos-${GITHUB_REF_NAME}.zip.sha256#SHA-256 checksum" \
+            --verify-tag \
+            --title "DaVinci Resolve Portable ${GITHUB_REF_NAME}" \
+            --notes "$(cat release-intro.md)" \
             --generate-notes \
             --prerelease
 
-      - name: Create GitHub release
+      - name: Create stable release
         if: ${{ !contains(github.ref_name, '-') }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
-            --target "${GITHUB_SHA}" \
-            --title "${GITHUB_REF_NAME}" \
+            "dist/davinci-resolve-portable-macos-${GITHUB_REF_NAME}.zip#Portable Resolve Builder" \
+            "dist/davinci-resolve-portable-macos-${GITHUB_REF_NAME}.zip.sha256#SHA-256 checksum" \
+            --verify-tag \
+            --title "DaVinci Resolve Portable ${GITHUB_REF_NAME}" \
+            --notes "$(cat release-intro.md)" \
             --generate-notes
