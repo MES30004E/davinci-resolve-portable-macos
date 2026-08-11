@@ -9,6 +9,8 @@ All notable changes to this project will be documented here. The format follows
 ### Fixed
 
 - Fixed GitHub Actions dashboard tests inheriting no-animation mode.
+- Fixed a flaky CI test for best-effort live current-file dashboard monitoring.
+- Improved final current-file observation for fast copy operations.
 
 ## [0.3.0] - 2026-08-11
 

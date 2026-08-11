@@ -694,6 +694,9 @@ copy_monitor_begin() {
 copy_monitor_poll() {
   local candidate relative destination_candidate count=0 verbose_batch=0
   if verbose_output_enabled; then ui_dashboard_end; verbose_batch=1; fi
+  # Normal dashboard mode intentionally keeps only the most recent member of
+  # each observed batch. It is a best-effort representative, not a promise to
+  # render every copied file; verbose mode logs every observation in the batch.
   while (( count < 50 )); do
     if [[ -n "$COPY_MONITOR_PENDING" ]]; then
       candidate="$COPY_MONITOR_PENDING"
@@ -826,6 +829,13 @@ run_copy_with_progress() {
     ui_dashboard_render
     sleep 0.25
   done
+
+  # A fast copy can exit between loop iterations. Observe one final batch so
+  # the last dashboard frame can reflect a genuine recently copied file.
+  if [[ "$monitor_active" -eq 1 && "$RUN_STATUS_INTERRUPTED" -eq 0 ]]; then
+    copy_monitor_poll
+    ui_dashboard_render
+  fi
 
   if wait "$RUN_STATUS_PID"; then status=0; else status=$?; fi
   [[ "$RUN_STATUS_INTERRUPTED" -eq 0 ]] || status=130

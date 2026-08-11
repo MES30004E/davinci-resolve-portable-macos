@@ -363,6 +363,70 @@ dd if=/dev/zero of="$dashboard_source/Contents/Frameworks/first.dylib" bs=1024 c
   >/dev/null 2>&1
 dd if=/dev/zero of="$dashboard_source/Contents/Frameworks/second.dylib" bs=1024 count=32 \
   >/dev/null 2>&1
+
+# The normal monitor is deliberately best-effort: one poll may observe a batch
+# and only its most recent real file needs to become a visible frame. Exercise
+# exact transitions separately, synchronized to the monitor's own enumeration
+# order rather than filesystem ordering or scheduler timing.
+monitor_destination="$TEST_ROOT/Deterministic Monitor Destination.app"
+monitor_frame_one="$TEST_ROOT/monitor-frame-one"
+monitor_frame_two="$TEST_ROOT/monitor-frame-two"
+mkdir -p "$monitor_destination"
+copy_monitor_begin "$dashboard_source" "$monitor_destination" '+' copy
+monitor_order=()
+while IFS= read -r -d '' monitor_source_file; do
+  monitor_order+=("$monitor_source_file")
+done < "$COPY_MONITOR_LIST"
+if [[ "${#monitor_order[@]}" -ne 2 ]]; then
+  printf 'Dashboard current-file transition test failed.\n' >&2
+  printf 'Expected two real source files; monitor enumerated %d.\n' "${#monitor_order[@]}" >&2
+  copy_monitor_end
+  exit 1
+fi
+
+monitor_relative_one="${monitor_order[0]#"$dashboard_source"/}"
+monitor_relative_two="${monitor_order[1]#"$dashboard_source"/}"
+mkdir -p "$monitor_destination/$(dirname "$monitor_relative_one")"
+cp "${monitor_order[0]}" "$monitor_destination/$monitor_relative_one"
+copy_monitor_poll
+monitor_observed_one="$UI_DASHBOARD_CURRENT_FILE"
+progress_reset
+PROGRESS_CURRENT_LABEL='Deterministic current-file monitor'
+UI_DASHBOARD_ACTIVE=1
+ui_dashboard_set_copy Copy 50 32768 65536 '1.0 MiB/s' '00:01' "$monitor_observed_one"
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color \
+  DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 ui_dashboard_render > "$monitor_frame_one"
+UI_DASHBOARD_ACTIVE=0
+
+mkdir -p "$monitor_destination/$(dirname "$monitor_relative_two")"
+cp "${monitor_order[1]}" "$monitor_destination/$monitor_relative_two"
+copy_monitor_poll
+monitor_observed_two="$UI_DASHBOARD_CURRENT_FILE"
+UI_DASHBOARD_ACTIVE=1
+ui_dashboard_set_copy Copy 100 65536 65536 '1.0 MiB/s' '00:00' "$monitor_observed_two"
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color \
+  DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 ui_dashboard_render > "$monitor_frame_two"
+UI_DASHBOARD_ACTIVE=0
+copy_monitor_end
+
+if [[ -z "$monitor_observed_one" || -z "$monitor_observed_two" || \
+      "$monitor_observed_one" == "$monitor_observed_two" || \
+      ! -f "$dashboard_source/$monitor_observed_one" || \
+      ! -f "$dashboard_source/$monitor_observed_two" || \
+      ! -f "$monitor_destination/$monitor_observed_one" || \
+      ! -f "$monitor_destination/$monitor_observed_two" ]] || \
+   ! grep -Fq "$monitor_observed_one" "$monitor_frame_one" || \
+   ! grep -Fq "$monitor_observed_two" "$monitor_frame_two"; then
+  printf 'Dashboard current-file transition test failed.\n' >&2
+  printf 'Observed:\n  %s\n  %s\n' \
+    "${monitor_observed_one:-(none)}" "${monitor_observed_two:-(none)}" >&2
+  printf '%s\n' 'Expected at least two distinct real source and destination paths.' >&2
+  printf '%s\n' 'Captured dashboard excerpts:' >&2
+  sed -n '1,13p' "$monitor_frame_one" >&2
+  sed -n '1,13p' "$monitor_frame_two" >&2
+  exit 1
+fi
+
 DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 \
   DAVINCI_PORTABLE_OPERATION_END_PERCENT=70 bash -c '
   source "$1/scripts/common.sh"
@@ -372,12 +436,14 @@ DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTER
     "mkdir -p \"$3/Contents/Frameworks\"; cp \"$2/Contents/Frameworks/first.dylib\" \"$3/Contents/Frameworks/\"; sleep 1.2; cp \"$2/Contents/Frameworks/second.dylib\" \"$3/Contents/Frameworks/\"; sleep 1.6"
 ' _ "$PROJECT_DIR" "$dashboard_source" "$dashboard_destination" \
   > "$TEST_ROOT/dashboard-copy-output"
-grep -Fq 'Contents/Frameworks/first.dylib' "$TEST_ROOT/dashboard-copy-output" || {
-  printf 'Dashboard did not observe first copied file\n' >&2; exit 1;
-}
-grep -Fq 'Contents/Frameworks/second.dylib' "$TEST_ROOT/dashboard-copy-output" || {
-  printf 'Dashboard did not observe second copied file\n' >&2; exit 1;
-}
+if ! grep -Fq 'Contents/Frameworks/first.dylib' "$TEST_ROOT/dashboard-copy-output" && \
+   ! grep -Fq 'Contents/Frameworks/second.dylib' "$TEST_ROOT/dashboard-copy-output"; then
+  printf 'Dashboard current-file integration test failed.\n' >&2
+  printf '%s\n' 'Expected at least one real representative source path.' >&2
+  printf '%s\n' 'Captured dashboard excerpt:' >&2
+  sed -n '1,80p' "$TEST_ROOT/dashboard-copy-output" >&2
+  exit 1
+fi
 grep -Fq 'Finalizing files...' "$TEST_ROOT/dashboard-copy-output" || {
   printf 'Dashboard did not show finalizing state\n' >&2; exit 1;
 }
