@@ -6,6 +6,10 @@ All notable changes to this project will be documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed GitHub Actions dashboard tests inheriting no-animation mode.
+
 ## [0.3.0] - 2026-08-11
 
 ### Added

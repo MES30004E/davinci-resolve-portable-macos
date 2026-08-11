@@ -8,6 +8,22 @@ trap cleanup EXIT
 cleanup
 mkdir -p "$TEST_ROOT/tmp" "$TEST_ROOT/Portable Root With Spaces"
 
+assert_text_contains() {
+  local output="$1" expected="$2" message="$3"
+  if [[ "$output" != *"$expected"* ]]; then
+    printf 'Dashboard test failed: %s\n' "$message" >&2
+    exit 1
+  fi
+}
+
+assert_file_contains() {
+  local file="$1" expected="$2" message="$3"
+  if ! grep -Fq "$expected" "$file"; then
+    printf 'Dashboard test failed: %s\n' "$message" >&2
+    exit 1
+  fi
+}
+
 printf 'Checking shell syntax...\n'
 while IFS= read -r -d '' script; do
   bash -n "$script"
@@ -161,6 +177,12 @@ if [[ "$no_animation_output" == *$'\r'* || "$no_animation_output" == *$'\033'* ]
   printf 'Nonanimated command status emitted terminal redraw controls\n' >&2
   exit 1
 fi
+if [[ "$no_animation_output" == *'Working  '* || "$no_animation_output" == *'◐'* || \
+      "$no_animation_output" == *'◓'* || "$no_animation_output" == *'◑'* || \
+      "$no_animation_output" == *'◒'* ]]; then
+  printf 'Nonanimated command status emitted dashboard or spinner output\n' >&2
+  exit 1
+fi
 
 printf 'Testing visible-output command status without spinner interleaving...\n'
 visible_output="$(run_with_visible_output 'Certificate inspection' \
@@ -186,7 +208,8 @@ if [[ "$(cat "$TEST_ROOT/visible-status-output")" == *$'\r'* ]]; then
 fi
 
 printf 'Testing fixed-row dashboard, spinner, and clean ANSI rendering...\n'
-TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color \
+  DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
   source "$1/scripts/common.sh"
   progress_reset
   progress_phase 5 "Preflight"
@@ -201,15 +224,24 @@ TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
   ui_dashboard_end
 ' _ "$PROJECT_DIR" > "$TEST_ROOT/interactive-progress-output"
 interactive_progress_output="$(cat "$TEST_ROOT/interactive-progress-output")"
-[[ "$interactive_progress_output" == *$'\033[12A'* ]]
-[[ "$interactive_progress_output" == *'Working  '* ]]
-[[ "$interactive_progress_output" == *'◐'* || "$interactive_progress_output" == *'◓'* ]]
-grep -Fq 'Contents/Resources/example.file' "$TEST_ROOT/interactive-progress-output"
-grep -Fq 'Time left  ~' "$TEST_ROOT/interactive-progress-output"
-grep -Fq 'UI_DASHBOARD_ROWS=13' "$PROJECT_DIR/scripts/common.sh"
+assert_text_contains "$interactive_progress_output" $'\033[13A' \
+  'expected ANSI cursor-up sequence.'
+assert_text_contains "$interactive_progress_output" 'Working  ' \
+  'expected working/spinner row.'
+if [[ "$interactive_progress_output" != *'◐'* && "$interactive_progress_output" != *'◓'* ]]; then
+  printf 'Dashboard test failed: expected spinner frame.\n' >&2
+  exit 1
+fi
+assert_file_contains "$TEST_ROOT/interactive-progress-output" \
+  'Contents/Resources/example.file' 'expected current-file field.'
+assert_file_contains "$TEST_ROOT/interactive-progress-output" 'Time left  ~' \
+  'expected approximate Time left field.'
+assert_file_contains "$PROJECT_DIR/scripts/common.sh" 'UI_DASHBOARD_ROWS=13' \
+  'expected fixed dashboard row count.'
 
 printf 'Testing controlled Time-left dashboard states...\n'
-TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color \
+  DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
   source "$1/scripts/common.sh"
   progress_reset
   progress_phase 40 "Expanding installer"
@@ -229,16 +261,20 @@ TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
     "Contents/Frameworks/libDaVinciPanelAPI.dylib"
   ui_dashboard_begin; ui_dashboard_render; ui_dashboard_end
 ' _ "$PROJECT_DIR" > "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Overall  [########------------] 40%' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Time left  estimating...' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Overall  [############--------] 60%' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Time left  ~02:15' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Phase    Signing Resolve' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Copy     [##########----------] 51%' "$TEST_ROOT/time-left-states-output"
-grep -Fq '2.3 GiB / 4.5 GiB   318.0 MiB/s' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Time left  00:07' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Finalizing files...' "$TEST_ROOT/time-left-states-output"
-grep -Fq 'Time left  unavailable' "$TEST_ROOT/time-left-states-output"
+for dashboard_expectation in \
+  'Overall  [########------------] 40%' \
+  'Time left  estimating...' \
+  'Overall  [############--------] 60%' \
+  'Time left  ~02:15' \
+  'Phase    Signing Resolve' \
+  'Copy     [##########----------] 51%' \
+  '2.3 GiB / 4.5 GiB   318.0 MiB/s' \
+  'Time left  00:07' \
+  'Finalizing files...' \
+  'Time left  unavailable'; do
+  assert_file_contains "$TEST_ROOT/time-left-states-output" "$dashboard_expectation" \
+    "expected controlled state: $dashboard_expectation"
+done
 if grep -nE 'Overall ETA|ETA unavailable|ETA estimating\.\.\.|ETA:[[:space:]]' \
   "$PROJECT_DIR/scripts/common.sh" "$PROJECT_DIR/scripts/install_core.sh" \
   "$PROJECT_DIR/Build Portable Resolve.command" "$PROJECT_DIR/Update Portable Resolve.command" \
@@ -248,7 +284,8 @@ if grep -nE 'Overall ETA|ETA unavailable|ETA estimating\.\.\.|ETA:[[:space:]]' \
 fi
 
 set +e
-TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color \
+  DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
   source "$1/scripts/common.sh"
   progress_reset
   progress_phase 40 "Expanding installer"
@@ -257,14 +294,17 @@ TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
 interactive_failure_status=$?
 set -e
 [[ "$interactive_failure_status" -eq 17 ]]
-grep -Fq '[FAILED] Simulated long operation' "$TEST_ROOT/interactive-failure-output"
-grep -Fq $'\033[?25h' "$TEST_ROOT/interactive-failure-output"
+assert_file_contains "$TEST_ROOT/interactive-failure-output" \
+  '[FAILED] Simulated long operation' 'expected interactive failure status.'
+assert_file_contains "$TEST_ROOT/interactive-failure-output" $'\033[?25h' \
+  'expected cursor restoration after interactive failure.'
 if grep -q '^    elapsed ' "$TEST_ROOT/interactive-failure-output"; then
   printf 'Dashboard operation appended elapsed-time log lines\n' >&2
   exit 1
 fi
 
-TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color \
+  DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 bash -c '
   source "$1/scripts/common.sh"
   progress_reset
   progress_phase 15 "Checking installer signature"
@@ -275,7 +315,7 @@ grep -q '^Certificate 1: Example Signer$' "$TEST_ROOT/interactive-visible-output
 
 printf 'Testing expansion activity and monitored staging size...\n'
 expanded_monitor="$TEST_ROOT/Expansion Monitor"
-TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 \
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 \
   DAVINCI_PORTABLE_STATUS_MONITOR_PATH="$expanded_monitor" bash -c '
   source "$1/scripts/common.sh"
   run_with_status "Expanding installer" sh -c \
@@ -323,7 +363,7 @@ dd if=/dev/zero of="$dashboard_source/Contents/Frameworks/first.dylib" bs=1024 c
   >/dev/null 2>&1
 dd if=/dev/zero of="$dashboard_source/Contents/Frameworks/second.dylib" bs=1024 count=32 \
   >/dev/null 2>&1
-TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 \
+DAVINCI_PORTABLE_NO_ANIMATION=0 TERM=xterm-256color DAVINCI_PORTABLE_FORCE_INTERACTIVE=1 \
   DAVINCI_PORTABLE_OPERATION_END_PERCENT=70 bash -c '
   source "$1/scripts/common.sh"
   progress_reset
