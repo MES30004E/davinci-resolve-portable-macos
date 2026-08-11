@@ -93,16 +93,19 @@ the app rather than assuming a package component layout, reads
 embeds it in the real app's `Contents/Frameworks`, and generates the launcher.
 Before extraction it displays `pkgutil --check-signature` results and performs
 conservative free-space checks on both staging and destination filesystems.
-Build and update show phase-based progress. Long operations display elapsed time
-when run interactively; set `DAVINCI_PORTABLE_NO_ANIMATION=1` to keep ordinary
-status lines without animated terminal output.
+Build and update show a live phase-based dashboard. Measurable copies include
+byte progress, current-file activity, transfer rate, and remaining `Time left`;
+the overall estimate is approximate. Set `DAVINCI_PORTABLE_NO_ANIMATION=1` to
+keep ordinary status lines without animated terminal output.
 
 ## Update, diagnose, and uninstall
 
 - Run `Update Portable Resolve.command` with a newer official `.pkg`. User data
-  remains outside the versioned app; the new app is staged and validated before
-  activation, and the previous app is retained under the private state directory
-  as a rollback.
+  remains outside the versioned app. The guided updater auto-detects managed
+  portable roots, compares installed and incoming versions, and requires explicit
+  confirmation for repairs or downgrades. The new app is staged and validated
+  before activation, with a comprehensive timestamped rollback retained by
+  default.
 - Run `scripts/diagnose.command <portable-root>` for a read-only report. Add
   `--dyld-test` as the second argument only if you intentionally want it to offer
   to launch Resolve with library-load logging.

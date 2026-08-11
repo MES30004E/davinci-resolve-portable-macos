@@ -4,6 +4,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 source "$SCRIPT_DIR/scripts/common.sh"
 source "$SCRIPT_DIR/scripts/install_core.sh"
 
+printf 'DaVinci Resolve Portable Builder\n'
 pkg="${1:-}"
 root="${2:-}"
 [[ -n "$pkg" ]] || pkg="$(prompt_path 'Drag the official DaVinci Resolve .pkg here, then press Return: ')"

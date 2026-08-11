@@ -6,6 +6,8 @@ All notable changes to this project will be documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-11
+
 ### Added
 
 - Initial no-admin builder for user-supplied DaVinci Resolve macOS packages.
@@ -25,6 +27,12 @@ All notable changes to this project will be documented here. The format follows
   portable free-space checks before installation.
 - Suppress normal launcher output while retaining opt-in diagnostic logging.
 - Remove unused automatic pre-install backup restoration from the uninstaller.
-- Add monotonic phase progress and elapsed-time status for installer expansion,
-  application copies, and support-payload operations, with a nonanimated mode.
+- Add a live terminal dashboard with monotonic phase progress, real current-file
+  activity, measured copy progress, and remaining-duration `Time left` estimates;
+  retain concise status output in noninteractive and nonanimated modes.
 - Fix human-readable free-space formatting on stock macOS BSD `awk`.
+- Add a guided updater with marker-based mounted-volume discovery, safe dragged
+  path normalization, same-version repair and downgrade confirmations, an
+  installed-updater self-copy fix, and comprehensive automatic rollback for the
+  app, launcher, support payloads, and project state.
+- Keep automated release introductions brief and direct users to README/docs.
